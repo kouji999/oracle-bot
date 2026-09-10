@@ -3,6 +3,7 @@ import { articlesSince } from './collectors/rss.js';
 import { newFreeModelsSince } from './collectors/ai.js';
 import { marketSnapshot, formatMarketLines } from './collectors/market.js';
 import { db } from './db.js';
+import { escapeHtml } from './util.js';
 
 export async function buildMorningDigest(): Promise<string> {
   const [snap, arts, aiNew] = await Promise.all([
@@ -14,7 +15,7 @@ export async function buildMorningDigest(): Promise<string> {
   const market = formatMarketLines(snap);
   const headlines = arts
     .slice(0, 14)
-    .map((a, i) => `${i + 1}. <a href="${a.url}">${a.title}</a> <i>(${a.source})</i>`)
+    .map((a, i) => `${i + 1}. <a href="${a.url}">${escapeHtml(a.title)}</a> <i>(${escapeHtml(a.source)})</i>`)
     .join('\n');
   const ai = aiNew.length
     ? aiNew.map((m) => `• <code>${m.id}</code> — ${m.ctx ? `${(m.ctx / 1000).toFixed(0)}k ctx` : 'ctx n/a'}`).join('\n')

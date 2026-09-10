@@ -1,0 +1,25 @@
+[Unit]
+Description=ORACLE Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=oracle
+WorkingDirectory=/opt/oracle-bot
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+# env file dibuat dari .env laptop (JANGAN commit)
+EnvironmentFile=-/opt/oracle-bot/.env
+StandardOutput=append:/var/log/oracle-bot.log
+StandardError=append:/var/log/oracle-bot.log
+
+# hardening ringan
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

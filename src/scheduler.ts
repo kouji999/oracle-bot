@@ -4,6 +4,7 @@ import { collectRss, articlesSince, type CollectedArticle } from './collectors/r
 import { scanAiProviders } from './collectors/ai.js';
 import { marketSnapshot } from './collectors/market.js';
 import { buildMorningDigest, buildWeeklyAiRecap } from './digest.js';
+import { escapeHtml } from './util.js';
 
 export interface Notifier {
   send(text: string): Promise<void>;
@@ -42,8 +43,8 @@ async function runRss(notify: Notifier): Promise<void> {
     }
   }
   for (const [kw, arts] of hits) {
-    const lines = arts.slice(0, 5).map((a) => `• <a href="${a.url}">${a.title}</a> <i>${a.source}</i>`);
-    await notify.send(`🚨 <b>Breaking — watch: ${kw}</b>\n\n${lines.join('\n')}`);
+    const lines = arts.slice(0, 5).map((a) => `• <a href="${a.url}">${escapeHtml(a.title)}</a> <i>${escapeHtml(a.source)}</i>`);
+    await notify.send(`🚨 <b>Breaking — watch: ${escapeHtml(kw)}</b>\n\n${lines.join('\n')}`);
   }
 }
 

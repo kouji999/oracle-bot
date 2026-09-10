@@ -1,6 +1,7 @@
 import { XMLParser } from 'fast-xml-parser';
 import { createHash } from 'node:crypto';
 import { db } from '../db.js';
+import { decodeEntities, escapeHtml } from '../util.js';
 
 export interface FeedDef {
   source: string;
@@ -58,16 +59,12 @@ function pickString(v: unknown): string {
 }
 
 function stripHtml(s: string): string {
-  return s
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&#x27;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return decodeEntities(
+    s
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  );
 }
 
 export async function fetchFeed(feed: FeedDef): Promise<RawItem[]> {
