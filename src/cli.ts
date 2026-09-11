@@ -1,8 +1,10 @@
-import { handleUpdateText } from './bot/commands.js';
+﻿import { handleUpdateText } from './bot/commands.js';
 import { buildMorningDigest } from './digest.js';
 import { marketSnapshot, formatMarketLines } from './collectors/market.js';
 import { collectRss } from './collectors/rss.js';
 import { scanAiProviders } from './collectors/ai.js';
+import { scanX } from './collectors/xai.js';
+import { syncFreeLlmProviders } from './collectors/freellm.js';
 import { ddgSearch } from './search.js';
 
 async function main(): Promise<void> {
@@ -21,6 +23,20 @@ async function main(): Promise<void> {
     case 'ai': {
       const r = await scanAiProviders();
       out = `free models: ${r.freeModelsTotal}\nnew: ${r.newModels.map((m) => m.id).join(', ') || '-'}\ngh: ${r.ghUpdates.length} updates${r.errors.length ? `\nerrors: ${r.errors.join(' | ')}` : ''}`;
+      break;
+    }
+    case 'prov': {
+      if (args.length) {
+        out = (await handleUpdateText(chatId, `/prov ${args.join(' ')}`)) ?? '';
+      } else {
+        const s = await syncFreeLlmProviders();
+        out = `sync: ${s.ok ? 'ok' : `FAILED ${s.error}`} · total: ${s.total} · events: ${s.events.length ? s.events.map((e: { name: string; type: string }) => `${e.name}(${e.type})`).join(', ') : '0'}`;
+      }
+      break;
+    }
+    case 'xai': {
+      const s = await scanX();
+      out = `new: ${s.newPosts.length}\n${s.newPosts.slice(0, 8).map((p: { title: string; url: string }) => `- ${p.title}\n  ${p.url}`).join('\n')}${s.errors.length ? `\nerrors: ${s.errors.join(' | ')}` : ''}`;
       break;
     }
     case 'market': {
@@ -45,12 +61,13 @@ async function main(): Promise<void> {
     case 'news':
     case 'newsid':
     case 'aifree':
+    case 'status':
     case 'price': {
       out = (await handleUpdateText(chatId, cmd === 'help' ? '/help' : `/${cmd}`)) ?? '';
       break;
     }
     default:
-      out = 'Usage: npm run cli -- <rss|ai|market|ddg|digest|ask|help|news|newsid|aifree|price> [args]';
+      out = 'Usage: npm run cli -- <rss|ai|prov|xai|market|ddg|digest|ask|help|news|newsid|aifree|price|status> [args]';
   }
 
   console.log(`\n===== ${cmd} (${Date.now() - t0}ms) =====\n`);

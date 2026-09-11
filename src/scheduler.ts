@@ -1,10 +1,12 @@
 import { db } from './db.js';
 import cron from 'node-cron';
-import { collectRss, articlesSince, type CollectedArticle } from './collectors/rss.js';
+import { collectRss, type CollectedArticle } from './collectors/rss.js';
 import { scanAiProviders } from './collectors/ai.js';
 import { marketSnapshot } from './collectors/market.js';
 import { buildMorningDigest, buildWeeklyAiRecap } from './digest.js';
 import { escapeHtml } from './util.js';
+import { syncFreeLlmProviders } from './collectors/freellm.js';
+import { scanX } from './collectors/xai.js';
 
 export interface Notifier {
   send(text: string): Promise<void>;
@@ -63,10 +65,40 @@ export function startScheduler(notify: Notifier): { stop: () => void } {
         .then((r) => {
           if (r.newModels.length > 0) {
             const list = r.newModels.slice(0, 8).map((m) => `• <code>${m.id}</code> — ${m.ctx ? `${(m.ctx / 1000).toFixed(0)}k ctx` : 'n/a'}`).join('\n');
-            return notify.send(`🆓 <b>Free AI model baru di OpenRouter (${r.freeModelsTotal} total)</b>\n\n${list}`);
+            return notify.send(`🆕 <b>Model AI gratis baru di OpenRouter (${r.freeModelsTotal} total)</b>\n\n${list}`);
           }
         })
         .catch((e) => console.error('[ai-cron]', e.message));
+    }, { timezone: 'Asia/Jakarta' }),
+  );
+
+  // Intelijen X (provider AI yang dibicarakan orang) — tiap jam
+  crons.push(
+    cron.schedule('15 * * * *', () => {
+      void scanX()
+        .then((r) => {
+          if (r.newPosts.length > 0) {
+            const list = r.newPosts.slice(0, 5).map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a>`).join('\n');
+            return notify.send(`🐦 <b>Intelijen X baru — provider AI (${r.newPosts.length} posting-an)</b>\n\n${list}`);
+          }
+        })
+        .catch((e) => console.error('[x-cron]', e.message));
+    }, { timezone: 'Asia/Jakarta' }),
+  );
+
+  // Sinkronisasi direktori provider (awesome-freellm-apis) — 2x sehari
+  crons.push(
+    cron.schedule('40 5,17 * * *', () => {
+      void syncFreeLlmProviders()
+        .then((s) => {
+          if (!s.ok) return console.error('[prov-cron] sync gagal:', s.error);
+          const notable = s.events.filter((e) => e.type === 'new_provider' || (e.type === 'models_up' && (e.to ?? 0) - (e.from ?? 0) >= 5));
+          if (notable.length > 0) {
+            const list = notable.slice(0, 6).map((e) => `• ${e.type === 'new_provider' ? `BARU <b>${escapeHtml(e.name)}</b> (${e.to} model)` : `${escapeHtml(e.name)}: ${e.from} → ${e.to} model`}`).join('\n');
+            return notify.send(`🧩 <b>Perbaruan direktori provider AI</b>\n\n${list}`);
+          }
+        })
+        .catch((e) => console.error('[prov-cron]', e.message));
     }, { timezone: 'Asia/Jakarta' }),
   );
 
@@ -90,10 +122,14 @@ export function startScheduler(notify: Notifier): { stop: () => void } {
 }
 
 export async function runInitialCollect(): Promise<string> {
-  const r = await collectRss();
-  await scanAiProviders().catch(() => undefined);
-  await marketSnapshot().catch(() => undefined);
-  const ok = r.perFeed.filter((f) => f.ok);
-  const bad = r.perFeed.filter((f) => !f.ok);
-  return `Boot collect: ${ok.reduce((a, f) => a + f.items, 0)} artikel baru (${ok.length}/${r.perFeed.length} feed ok)${bad.length ? ` · gagal: ${bad.map((f) => f.source).join(', ')}` : ''}`;
+  const [rssR] = await Promise.all([
+    collectRss(),
+    scanAiProviders().catch(() => undefined),
+    syncFreeLlmProviders().catch(() => undefined),
+    scanX().catch(() => undefined),
+    marketSnapshot().catch(() => undefined),
+  ]);
+  const ok = rssR.perFeed.filter((f) => f.ok);
+  const bad = rssR.perFeed.filter((f) => !f.ok);
+  return `Boot: ${ok.reduce((a, f) => a + f.items, 0)} artikel baru (${ok.length}/${rssR.perFeed.length} kanal) + provider directory & X intel tersinkron${bad.length ? ` · gagal: ${bad.map((f) => f.source).join(', ')}` : ''}`;
 }
