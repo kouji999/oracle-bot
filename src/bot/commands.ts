@@ -37,8 +37,8 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
   const rest = text.trim().slice(cmd.length).trim();
 
   if (!cmd.startsWith('/')) {
-    if (/^(tanya|ask)\b/i.test(text.trim())) return cmdAsk(chatId, rest);
-    return null;
+    // chat bebas = auto-ask dengan grounding web search
+    return cmdAsk(chatId, text.trim());
   }
 
   switch (cmd) {

@@ -93,3 +93,8 @@ export async function main(): Promise<void> {
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
 }
+
+void main().catch((e) => {
+  console.error('[bot] fatal:', e);
+  process.exit(1);
+});
