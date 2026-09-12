@@ -3,7 +3,7 @@ import { assertLlm } from '../config.js';
 import { escapeHtml } from '../util.js';
 import { llmChat } from '../llm.js';
 import { ddgSearch } from '../search.js';
-import { db, remember, recentHistory } from '../db.js';
+import { db, kvGet, remember, recentHistory } from '../db.js';
 import { latestArticles, collectRss } from '../collectors/rss.js';
 import { scanAiProviders, listFreeModels, newFreeModelsSince } from '../collectors/ai.js';
 import { syncFreeLlmProviders, listProviders, findProvider, type ProviderRow } from '../collectors/freellm.js';
@@ -222,7 +222,10 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
     case '/status': {
       const counts = {
         articles: (db.prepare('SELECT COUNT(*) c FROM articles').get() as { c: number }).c,
-        lastArticle: (db.prepare('SELECT MAX(COALESCE(published_at, collected_at)) m FROM articles').get() as { m: string | null }).m,
+        lastRss: kvGet('last_rss_scan') ?? null,
+        lastAi: kvGet('last_ai_scan') ?? null,
+        lastProv: kvGet('last_prov_sync') ?? null,
+        lastXai: kvGet('last_xai_scan') ?? null,
         providers: (db.prepare('SELECT COUNT(*) c FROM ai_providers').get() as { c: number }).c,
         freeModels: (db.prepare("SELECT COUNT(*) c FROM ai_models WHERE provider='openrouter'").get() as { c: number }).c,
         xPosts: (db.prepare('SELECT COUNT(*) c FROM x_posts').get() as { c: number }).c,
@@ -231,10 +234,11 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
       const since = (iso: string | null): string => (iso ? new Date(iso).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }) : '—');
       return [
         '<b>⚙️ Status Layanan ORACLE</b>',
-        `• Artikel tersimpan: <b>${counts.articles}</b> (terbaru: ${since(counts.lastArticle)})`,
-        `• Provider AI terdaftar: <b>${counts.providers}</b> · Model gratis OpenRouter: <b>${counts.freeModels}</b>`,
-        `• Posting-an X terpantau: <b>${counts.xPosts}</b> · Kata kunci watch: <b>${counts.watches}</b>`,
-        `• LLM chain: ${config.llmChain.map((p) => escapeHtml(p.name)).join(' → ')}`,
+        `• Artikel tersimpan: <b>${counts.articles}</b> · Sinkron RSS terakhir: ${since(counts.lastRss)}`,
+        `• Provider AI: <b>${counts.providers}</b> · Model gratis OpenRouter: <b>${counts.freeModels}</b> · Intelijen X: <b>${counts.xPosts}</b> (terbaru: ${since(counts.lastXai)})`,
+        `• Sinkron direktori provider: ${since(counts.lastProv)} · Pindai OpenRouter: ${since(counts.lastAi)}`,
+        `• Kata kunci pemantauan: <b>${counts.watches}</b>`,
+        `• Rantai LLM: ${config.llmChain.map((p) => escapeHtml(p.name)).join(' → ')}`,
         `• Waktu server: ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB`,
       ].join('\n');
     }

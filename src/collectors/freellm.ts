@@ -1,4 +1,4 @@
-import { db } from '../db.js';
+import { db, kvSet } from '../db.js';
 
 const REPO_README = 'https://raw.githubusercontent.com/open-free-llm-api/awesome-freellm-apis/main/README.md';
 
@@ -159,6 +159,7 @@ export async function syncFreeLlmProviders(): Promise<SyncResult> {
   }
 
   const total = (db.prepare('SELECT COUNT(*) c FROM ai_providers').get() as { c: number }).c;
+  kvSet('last_prov_sync', new Date().toISOString());
   return { ok: true, total, events };
 }
 

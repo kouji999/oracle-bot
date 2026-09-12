@@ -16,17 +16,18 @@
 - `node:sqlite` & semua dep project ini pure JS — aman di ARM (zero native deps by design)
 - Kalau npm install lambat: `npm ci --prefer-offline`
 
+## Backup DB
+```bash
+# di VM (cron harian via crontab -e):
+# 30 4 * * * cd /opt/oracle-bot && /usr/bin/node deploy/backup-db.mjs
+# (node:sqlite built-in, tanpa CLI sqlite3)
+```
+
 ## Update bot
 ```bash
 # di laptop:
-rsync -av --exclude node_modules --exclude data --exclude .git --exclude .env ./ ubuntu@VM_IP:/tmp/oracle-push/
+pwsh -File deploy/push-vps.ps1   # atau manual:
+# rsync -av --exclude node_modules --exclude data --exclude .git ./ ubuntu@VM_IP:/tmp/oracle-push/
 # di VM:
 sudo rsync -a /tmp/oracle-push/ /opt/oracle-bot/ && cd /opt/oracle-bot && sudo -u oracle npm ci && sudo -u oracle npm run build && sudo systemctl restart oracle-bot
 ```
-
-## Backup DB
-```bash
-# di VM (cron harian):
-sqlite3 /opt/oracle-bot/data/oracle.db ".backup /opt/oracle-bot/data/backup-$(date +%F).db"
-```
-(atau cukup rsync file .db saat bot stop — WAL mode safe untuk copy live juga)

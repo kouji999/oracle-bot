@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { createHash } from 'node:crypto';
-import { db } from '../db.js';
+import { db, kvSet } from '../db.js';
 import { decodeEntities, escapeHtml } from '../util.js';
 
 export interface FeedDef {
@@ -146,6 +146,7 @@ export async function collectRss(): Promise<RssResult> {
       perFeed.push({ source: feed.source, ok: false, items: 0, error: String((res.reason as Error)?.message ?? res.reason) });
     }
   });
+  kvSet('last_rss_scan', new Date().toISOString());
   return { perFeed, newArticles };
 }
 

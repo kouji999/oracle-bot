@@ -77,7 +77,7 @@ export async function main(): Promise<void> {
   console.log(`[bot] ${bootMsg}`);
 
   startScheduler(notify);
-  console.log('[bot] scheduler aktif (rss 30m, ai 6h, digest 06:30 WIB, weekly Sen 09:00)');
+  console.log('[bot] scheduler aktif (rss 30m · xai 1h · openrouter 6h · provider 5:40/17:40 · digest 06:30 · recap Senin 09:00 WIB)');
 
   void bot.start({
     onStart: (me) => {

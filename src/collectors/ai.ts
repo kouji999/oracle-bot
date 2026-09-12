@@ -84,6 +84,7 @@ export async function scanAiProviders(): Promise<AiScanResult> {
     }
   }
 
+  kvSet('last_ai_scan', new Date().toISOString());
   return { freeModelsTotal: freeTotal, newModels, ghUpdates, errors };
 }
 

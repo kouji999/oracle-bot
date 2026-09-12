@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { db } from '../db.js';
+import { db, kvSet } from '../db.js';
 import { ddgSearch } from '../search.js';
 
 const X_QUERIES = [
@@ -46,6 +46,7 @@ export async function scanX(): Promise<{ newPosts: XPost[]; errors: string[] }> 
     const r = insert.run(p.hash, p.title, p.url, p.snippet, p.query, new Date().toISOString());
     if (r.changes > 0) newPosts.push(p);
   }
+  kvSet('last_xai_scan', new Date().toISOString());
   return { newPosts, errors };
 }
 
