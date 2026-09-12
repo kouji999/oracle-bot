@@ -22,8 +22,10 @@ Telegram AI bot: chat AI (LLM+DDG grounding), finance news (global+ID), free-AI 
 - src/collectors/market.ts — CoinGecko + Frankfurter (USD/IDR) + Twelve Data (opsional)
 - src/digest.ts — morning brief + weekly AI recap (LLM summary + raw data)
 - src/bot/commands.ts — semua handler command/chat; format HTML Telegram, max 4096 char (split di scheduler.ts)
-- src/scheduler.ts — cron: rss 30m, ai 6h, digest 06:30 WIB, weekly Senin 09:00; watch keyword alert
+- src/learning.ts — self-improving loop: feedback 👍/👎 → skor + query bank + source cooldown; emerging-topic auto-watch; noise filter. Tambah pola noise = edit NOISE_PATTERNS.
+- src/scheduler.ts — cron: rss 30m, intel 1j (15), ai 6h, digest 06:30 WIB, weekly Senin 09:00; watch keyword alert
 - src/cli.ts — harness verifikasi tanpa Telegram
+- DB migration: addColumn() di src/db.ts — tambah kolom baru = tambah satu baris addColumn, jangan recreate tabel
 
 ## X Session (Twitter) — Refresh Runbook
 
