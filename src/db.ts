@@ -8,6 +8,13 @@ mkdirSync(config.dataDir, { recursive: true });
 export const db = new DatabaseSync(join(config.dataDir, 'oracle.db'));
 
 db.exec('PRAGMA journal_mode = WAL;');
+// lightweight migrations: tambah kolom kalau tabel lama belum punya
+function addColumn(table: string, col: string, ddl: string): void {
+  const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+}
+addColumn('intel_items', 'query', 'query TEXT');
+addColumn('intel_items', 'score', 'score INTEGER DEFAULT 0');
 db.exec(`
 CREATE TABLE IF NOT EXISTS articles (
   hash TEXT PRIMARY KEY,
@@ -78,7 +85,37 @@ CREATE TABLE IF NOT EXISTS intel_items (
   title TEXT NOT NULL,
   url TEXT NOT NULL,
   snippet TEXT,
+  query TEXT,
+  score INTEGER DEFAULT 0,
   found_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_hash TEXT NOT NULL,
+  vote INTEGER NOT NULL,
+  chat_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS source_health (
+  source TEXT PRIMARY KEY,
+  consec_fail INTEGER DEFAULT 0,
+  dead_until TEXT,
+  last_error TEXT,
+  updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS learned_queries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL,
+  query TEXT NOT NULL UNIQUE,
+  active INTEGER DEFAULT 1,
+  hits INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS learn_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_intel_found ON intel_items(found_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_pub ON articles(published_at DESC);

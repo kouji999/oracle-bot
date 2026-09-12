@@ -8,6 +8,7 @@ import { latestArticles, collectRss } from '../collectors/rss.js';
 import { scanAiProviders, listFreeModels, newFreeModelsSince } from '../collectors/ai.js';
 import { syncFreeLlmProviders, listProviders, findProvider, type ProviderRow } from '../collectors/freellm.js';
 import { runIntelScan, latestIntel } from '../collectors/intel.js';
+import { xSessionStatus } from '../collectors/xauth.js';
 import { marketSnapshot, formatMarketLines } from '../collectors/market.js';
 import { buildMorningDigest, buildWeeklyAiRecap } from '../digest.js';
 
@@ -58,6 +59,31 @@ function xPostsText(posts: { title: string; url: string; snippet: string }[]): s
   return posts
     .map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a>${p.snippet ? `\n  ${escapeHtml(p.snippet.slice(0, 140))}` : ''}`)
     .join('\n');
+}
+
+/** Nomorin temuan per sesi → user vote: /fb 2 + / - */
+function intelNumbered(items: { hash: string; title: string; url: string; snippet: string; source: string }[], offset = 0): { text: string; map: Map<number, string> } {
+  const map = new Map<number, string>();
+  const lines = items.slice(0, 8).map((p, i) => {
+    const n = offset + i + 1;
+    map.set(n, p.hash);
+    return `<b>${n}.</b> <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a> <i>${escapeHtml(p.source)}</i>${p.snippet ? `\n  ${escapeHtml(p.snippet.slice(0, 130))}` : ''}`;
+  });
+  return { text: lines.join('\n'), map };
+}
+
+const lastIntel = new Map<string, { map: Map<number, string>; ttl: number }>();
+function setIntelMap(chatId: string, map: Map<number, string>): void {
+  lastIntel.set(chatId, { map, ttl: Date.now() + 3600_000 });
+}
+function getIntelMap(chatId: string): Map<number, string> | undefined {
+  const e = lastIntel.get(chatId);
+  if (!e) return undefined;
+  if (e.ttl < Date.now()) {
+    lastIntel.delete(chatId);
+    return undefined;
+  }
+  return e.map;
 }
 
 function provDetail(p: ProviderRow): string {
@@ -111,12 +137,15 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
         '• <code>/ask &lt;pertanyaan&gt;</code>',
         '',
         '<b>🤖 Provider AI Gratis (prioritas intelijen)</b>',
+        '• <code>/freeai</code> — <b>briefing lengkap semua free-AI</b> (direktori + model + X + intelijen)',
         '• <code>/intel</code> — pemindaian semua sumber: perubahan provider (diff /models), Google News, Reddit, HN, X',
         '• <code>/intel</code> (alias /xai) — perubahan & temuan baru, auto-push tiap temuan',
         '• <code>/prov</code> — direktori provider AI gratis: base URL, jumlah model, rate limit',
         '• <code>/prov &lt;nama&gt;</code> — detail + snippet konfigurasi siap pakai',
         '• <code>/aifree</code> — model gratis OpenRouter yang dipantau',
         '• <code>/aiscan</code> — pindai menyeluruh: OpenRouter, direktori provider, X, repositori',
+        '• <code>/learn</code> — riwayat pembelajaran bot: feedback, query dipelajari, kesehatan sumber',
+        '• <code>/fb &lt;nomor&gt; +|-</code> — nilai kualitas temuan /intel (bot belajar)',
         '• <code>/howto</code> — SOP: cari, verifikasi, pasang provider gratis di router',
         '• <code>/airecap</code> — rekap mingguan',
         '',
@@ -158,6 +187,55 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
         'Lupa? Ketik <code>/help</code>.',
       ].join('\n');
 
+    case '/freeai': {
+      let provAll = listProviders();
+      if (provAll.length === 0) {
+        await syncFreeLlmProviders();
+        provAll = listProviders();
+      }
+      const models = listFreeModels(12);
+      const intelAll = latestIntel(10, 48);
+      const xLive = intelAll.filter((i) => i.source === 'X (live)');
+      const intelRecent = latestIntel(8, 24);
+      const xStatus = xSessionStatus();
+
+      const parts: string[] = ['<b>🆓 Free AI — Briefing Lengkap</b>', ''];
+
+      parts.push(
+        `<b>1. Provider direktori (${provAll.length})</b> — 10 teratas:` +
+          '\n' +
+          provAll
+            .slice(0, 10)
+            .map((p) => `• <b>${escapeHtml(p.name)}</b> — ${p.freeModels ?? '?'} model${p.creditCard && !/^no$/i.test(p.creditCard) ? ` · ${escapeHtml(p.creditCard)}` : ' · tanpa kartu'}${p.baseUrl ? ` · <code>${escapeHtml(p.baseUrl.replace(/^https?:\/\//, ''))}</code>` : ''}`)
+            .join('\n') +
+          `\n<i>Lengkap + config snippet: /prov — detail: /prov nama</i>`,
+      );
+
+      parts.push(
+        `\n<b>2. Model gratis OpenRouter terpantau (${models.length} terakhir)</b>\n` +
+          models.map((m) => `• <code>${m.id}</code> — ${m.ctx ? `${(m.ctx / 1000).toFixed(0)}k ctx` : 'n/a'}`).join('\n'),
+      );
+
+      parts.push(
+        `\n<b>3. X live ${xStatus.live ? '✅' : '⚠️ (session mati)'}</b>\n` +
+          (xLive.length
+            ? xLive.map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a> <i>${escapeHtml(p.origin ?? '')}</i>`).join('\n')
+            : 'Tidak ada posting-an baru 48 jam terakhir.'),
+      );
+
+      parts.push(
+        `\n<b>4. Intelijen lainnya (24 jam)</b>\n` +
+          (intelRecent.length
+            ? intelRecent.slice(0, 6).map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a> <i>${escapeHtml(p.source)}</i>`).join('\n')
+            : 'Tidak ada temuan baru.'),
+      );
+
+      parts.push(
+        `\n<i>Scan manual penuh: /intel · /aiscan · Direktori: /prov · SOP pasang: /howto</i>`,
+      );
+      return parts.join('\n');
+    }
+
     case '/xai':
     case '/intel': {
       if (rest) {
@@ -170,13 +248,17 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
       const r = await runIntelScan();
       const parts: string[] = ['<b>🛰 Intelijen Free-AI Provider</b>'];
       if (r.alerts.length) {
-        parts.push(`\n<b>⚠ Perubahan provider (deteksi langsung):</b>\n${r.alerts.slice(0, 8).join('\n')}`);
+        parts.push(`\n<b>⚠ Perubahan terdeteksi:</b>\n${r.alerts.slice(0, 8).join('\n')}`);
       }
+      const numbered = intelNumbered(r.newItems, 0);
+      setIntelMap(chatId, numbered.map);
       if (r.newItems.length) {
         const bySrc: Record<string, typeof r.newItems> = {};
         for (const it of r.newItems) (bySrc[it.source] ??= []).push(it);
         const blocks = Object.entries(bySrc).map(([src, items]) => `<b>${src}:</b>\n${xPostsText(items.slice(0, 5))}`);
         parts.push(`\n${blocks.join('\n\n')}`);
+        parts.push(`\n<i>👉 Nilai kualitas hasil: /fb &lt;nomor&gt; + (relevan) atau - (noise) — bot belajar dari vote lu.</i>`);
+        parts.push(`\n<b>Daftar bernomor:</b>\n${numbered.text}`);
       } else {
         parts.push('\nTidak ada temuan baru — semua sumber sudah terpindai sebelumnya.');
       }
@@ -184,6 +266,46 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
       if (perSrc) parts.push(`\n<i>${perSrc}</i>`);
       if (r.errors.length) parts.push(`\n<i>⚠ ${r.errors.join(' | ')}</i>`);
       return parts.join('\n');
+    }
+
+    case '/fb': {
+      const m = rest.match(/^(\d+)\s*([+-])$/);
+      if (!m) return 'Gunakan: <code>/fb &lt;nomor&gt; +</code> atau <code>/fb &lt;nomor&gt; -</code> — nomor dari daftar /intel terakhir (umur 1 jam).';
+      const map = getIntelMap(chatId);
+      const n = Number(m[1]);
+      const hash = map?.get(n);
+      if (!hash) return 'Nomor tidak dikenal / daftar sudah kedaluwarsa. Jalankan /intel lagi lalu vote.';
+      const vote = m[2] === '+' ? 1 : -1;
+      const { recordFeedback } = await import('../learning.js');
+      recordFeedback(hash, vote as 1 | -1, chatId);
+      const item = db.prepare('SELECT title, score FROM intel_items WHERE hash = ?').get(hash) as { title: string; score: number } | undefined;
+      const voteText = vote > 0 ? '✅ Relevan' : '🗑 Noise';
+      const learnNote =
+        vote < 0
+          ? '\n<i>Bot akan turunkan bobot temuan serupa &amp; cooldown sumber kalau konsisten jelek.</i>'
+          : '\n<i>Bot akan promosikan query terkait ke pemindaian rutin.</i>';
+      if (vote > 0 && item) {
+        const { learnQuery } = await import('../learning.js');
+        learnQuery(item.title.slice(0, 100), 'user-feedback');
+      }
+      return `${voteText} — <i>${escapeHtml(item?.title.slice(0, 80) ?? '')}</i> (skor: ${item?.score ?? 0})${learnNote}`;
+    }
+
+    case '/learn': {
+      const { learningDigest } = await import('../learning.js');
+      const rows = db
+        .prepare('SELECT COUNT(*) c, SUM(CASE WHEN vote>0 THEN 1 ELSE 0 END) up, SUM(CASE WHEN vote<0 THEN 1 ELSE 0 END) down FROM feedback')
+        .get() as { c: number; up: number | null; down: number | null };
+      const q = db.prepare('SELECT COUNT(*) c FROM learned_queries WHERE active = 1').get() as { c: number };
+      const health = db.prepare('SELECT source, dead_until, last_error FROM source_health WHERE dead_until IS NOT NULL AND dead_until > ?').all(new Date().toISOString()) as { source: string; dead_until: string; last_error: string }[];
+      const lines = learningDigest();
+      return [
+        '<b>🧠 Pembelajaran Bot</b>',
+        `• Feedback diterima: <b>${rows.c}</b> (👍 ${rows.up ?? 0} · 👎 ${rows.down ?? 0})`,
+        `• Query dipelajari &amp; aktif: <b>${q.c}</b>`,
+        health.length ? `\n<b>Sumber di-cooldown:</b>\n${health.map((h) => `• ${escapeHtml(h.source)} — ${escapeHtml(h.last_error ?? '')}`).join('\n')}` : '\nSemua sumber sehat ✅',
+        lines.length ? `\n<b>Aktivitas belajar terakhir:</b>\n${lines.join('\n')}` : '',
+      ].join('\n');
     }
 
     case '/prov': {

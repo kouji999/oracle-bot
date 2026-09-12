@@ -3,6 +3,7 @@ import { db, kvSet } from '../db.js';
 import { config } from '../config.js';
 import { ddgSearch } from '../search.js';
 import { scanXSession } from './xauth.js';
+import { isNoise, sourceDisabled, markSourceOk, promotedQueries, hitQuery, detectEmergingTopics } from '../learning.js';
 
 /**
  * intel.ts — free-AI-provider intelligence engine.
@@ -237,31 +238,64 @@ export interface IntelResult {
 }
 
 export async function runIntelScan(): Promise<IntelResult> {
-  const [alertsRes, gnews, reddit, hn, xLive] = await Promise.all([
+  const [alertsRes, gnewsRaw, redditRaw, hnRaw, xLive] = await Promise.all([
     collectProviderDiffs(),
-    collectGoogleNews().catch(() => [] as IntelItem[]),
-    collectReddit().catch(() => [] as IntelItem[]),
-    collectHn().catch(() => [] as IntelItem[]),
-    scanXSession().catch((e) => ({ newItems: [] as IntelItem[], alerts: [] as string[], errors: [String(e?.message ?? e)], checked: 0 })),
+    sourceDisabled('Google News') ? Promise.resolve([] as IntelItem[]) : collectGoogleNews().catch(() => [] as IntelItem[]),
+    sourceDisabled('Reddit') ? Promise.resolve([] as IntelItem[]) : collectReddit().catch(() => [] as IntelItem[]),
+    sourceDisabled('Hacker News') ? Promise.resolve([] as IntelItem[]) : collectHn().catch(() => [] as IntelItem[]),
+    sourceDisabled('X (live)') ? Promise.resolve({ newItems: [] as IntelItem[], alerts: [] as string[], errors: ['cooldown'], checked: 0 }) : scanXSession().catch((e) => ({ newItems: [] as IntelItem[], alerts: [] as string[], errors: [String(e?.message ?? e)], checked: 0 })),
   ]);
   const xErrors = xLive.errors ?? [];
 
-  const ddgX = await ddgSearch('site:x.com free AI API provider model', 8)
-    .then((h) => h.filter((x) => /x\.com|twitter\.com/.test(x.url)).map((x) => ({ hash: hashOf(x.url), source: 'X (search)', origin: 'x.com', title: x.title, url: x.url, snippet: x.snippet.slice(0, 200) })))
-    .catch(() => [] as IntelItem[]);
+  // query bank dinamis (dipelajari dari feedback) dijalankan berbarengan dgn query statis
+  const learnedQ = promotedQueries(3);
+  const learnedHits = (
+    await Promise.all(
+      learnedQ.map(async (q) => {
+        try {
+          const hits = await ddgSearch(q, 6);
+          hitQuery(q);
+          return hits.map((x) => ({ hash: hashOf(x.url), source: 'Learned', origin: q, title: x.title, url: x.url, snippet: x.snippet.slice(0, 200) }));
+        } catch {
+          return [] as { hash: string; source: string; origin: string; title: string; url: string; snippet: string }[];
+        }
+      }),
+    )
+  ).flat();
 
-  const all = [...gnews, ...reddit, ...hn, ...ddgX];
-  const insert = db.prepare('INSERT OR IGNORE INTO intel_items(hash, source, origin, title, url, snippet, found_at) VALUES(?,?,?,?,?,?,?)');
+  const ddgX = sourceDisabled('X (search)')
+    ? []
+    : await ddgSearch('site:x.com free AI API provider model', 8)
+        .then((h) => h.filter((x) => /x\.com|twitter\.com/.test(x.url)).map((x) => ({ hash: hashOf(x.url), source: 'X (search)', origin: 'x.com', title: x.title, url: x.url, snippet: x.snippet.slice(0, 200) })))
+        .catch(() => [] as IntelItem[]);
+
+  // health tracking per sumber
+  const gnews = gnewsRaw.filter((i) => !isNoise(i.title));
+  const reddit = redditRaw.filter((i) => !isNoise(i.title));
+  const hn = hnRaw.filter((i) => !isNoise(i.title));
+  markSourceOk('Google News'); markSourceOk('Reddit'); markSourceOk('Hacker News');
+  if (xLive.checked > 0) markSourceOk('X (live)');
+
+  const all = [...gnews, ...reddit, ...hn, ...ddgX, ...learnedHits];
+  const insert = db.prepare('INSERT OR IGNORE INTO intel_items(hash, source, origin, title, url, snippet, query, found_at) VALUES(?,?,?,?,?,?,?,?)');
   const newItems: IntelItem[] = [...xLive.newItems];
   const perSource: Record<string, number> = {};
   for (const it of xLive.newItems) perSource['X (live)'] = (perSource['X (live)'] ?? 0) + 1;
   for (const it of all) {
-    const r = insert.run(it.hash, it.source, it.origin, it.title, it.url, it.snippet, new Date().toISOString());
+    const r = insert.run(it.hash, it.source, it.origin ?? null, it.title, it.url, it.snippet ?? '', it.origin ?? null, new Date().toISOString());
     if (r.changes > 0) {
       newItems.push(it);
       perSource[it.source] = (perSource[it.source] ?? 0) + 1;
     }
   }
+
+  // self-improvement: auto-watch topik yang muncul berulang lintas sumber
+  try {
+    const emerged = detectEmergingTopics();
+    if (emerged.length) {
+      alertsRes.alerts.push(...emerged.map((t) => `🧠 <b>Auto-watch baru</b> (topik naik daun): <code>${t}</code>`));
+    }
+  } catch { /* non-fatal */ }
 
   kvSet('last_intel_scan', new Date().toISOString());
   return { newItems, alerts: [...xLive.alerts, ...alertsRes.alerts], errors: [...alertsRes.errors, ...xErrors], perSource };
