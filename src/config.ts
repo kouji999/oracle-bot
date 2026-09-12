@@ -51,6 +51,11 @@ export const config = {
   ].filter((p) => p.apiKey),
   coingeckoKey: process.env.COINGECKO_DEMO_KEY ?? '',
   twelvedataKey: process.env.TWELVEDATA_API_KEY ?? '',
+  x: {
+    authToken: process.env.X_AUTH_TOKEN ?? '',
+    ct0: process.env.X_CT0 ?? '',
+    handle: process.env.X_HANDLE ?? 'HidayatRal45222',
+  },
 };
 
 export function assertLlm(): void {

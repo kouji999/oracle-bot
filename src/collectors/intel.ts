@@ -1,18 +1,18 @@
-import { createHash } from 'node:crypto';
+﻿import { createHash } from 'node:crypto';
 import { db, kvSet } from '../db.js';
 import { config } from '../config.js';
 import { ddgSearch } from '../search.js';
+import { scanXSession } from './xauth.js';
 
 /**
  * intel.ts — free-AI-provider intelligence engine.
  * Sumber (urut prioritas):
- *  1. Google News RSS (index real-time, termasuk post X yang viral) — no key
- *  2. Reddit JSON (r/LocalLLaMA, AI subs) — tempat deal free API dibicarakan
- *  3. Hacker News Algolia — rilis project AI
- *  4. Provider watch: diff /models provider yang key-nya kita pegang (tokenrouter, b.ai)
- *  5. OpenRouter diff: free/paid transition + model baru
- *  6. Nitter RSS (mirror X) — multi-instance failover
- *  7. DDG site:x.com (lapis terakhir)
+ *  0. X live via session sendiri (GraphQL read-only) — tweet akun provider AI, PALING REAL-TIME
+ *  1. Provider /models diff (tokenrouter, b.ai, OpenRouter free/paid transition) — paling presisi
+ *  2. Google News RSS (index real-time, termasuk liputan deal free API)
+ *  3. Reddit JSON (r/LocalLLaMA, AI subs)
+ *  4. Hacker News Algolia
+ *  5. DDG site:x.com (jangkauan lebih lebar, index lebih lambat)
  */
 
 export interface IntelItem {
@@ -38,22 +38,10 @@ const REDDIT_URLS = [
 
 const HN_ALGOLIA = 'https://hn.algolia.com/api/v1/search_by_date?query="free" LLM API&tags=story&hitsPerPage=15';
 
-const NITTER_INSTANCES = [
-  'https://nitter.net',
-  'https://nitter.poast.org',
-  'https://nitter.privacyredirect.com',
-];
-const NITTER_FEEDS = ['OpenRouter', 'alienaskets'];
-
-const FREE_SIGNAL_RE = /\b(free|gratis|free tier|no cost|zero cost|open weights|promo|credit)\b/i;
-const AI_PROVIDER_RE = /\b(llm|api|model|provider|openrouter|groq|gemini|glm|qwen|deepseek|kimi|minimax|tokenrouter|b\.ai|cerebras|sambanova|mistral|nim|ollama)\b/i;
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 function hashOf(s: string): string {
   return createHash('sha1').update(s).digest('hex');
-}
-
-function matches(q: string): boolean {
-  return FREE_SIGNAL_RE.test(q) && AI_PROVIDER_RE.test(q);
 }
 
 async function fetchText(url: string, headers: Record<string, string> = {}, timeoutMs = 20_000): Promise<string> {
@@ -66,40 +54,6 @@ async function fetchText(url: string, headers: Record<string, string> = {}, time
   } finally {
     clearTimeout(to);
   }
-}
-
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
-
-function parseAtomOrRss(xml: string, baseUrl: string): { title: string; url: string; origin: string | null }[] {
-  const out: { title: string; url: string; origin: string | null }[] = [];
-  // RSS <item>
-  const itemRe = /<item>([\s\S]*?)<\/item>/g;
-  let m: RegExpExecArray | null;
-  while ((m = itemRe.exec(xml)) !== null) {
-    const block = m[1];
-    const title = tag(block, 'title');
-    let url2 = tag(block, 'link');
-    if (!url2) {
-      const dm = block.match(/<guid[^>]*>([^<]+)<\/guid>/);
-      url2 = dm ? dm[1].trim() : '';
-    }
-    if (title && url2) out.push({ title: decodeXml(title), url: url2.startsWith('http') ? url2 : baseUrl + url2, origin: baseUrl });
-  }
-  // Atom <entry>
-  const entryRe = /<entry>([\s\S]*?)<\/entry>/g;
-  while ((m = entryRe.exec(xml)) !== null) {
-    const block = m[1];
-    const title = tag(block, 'title');
-    const lm = block.match(/<link[^>]*href="([^"]+)"[^>]*\/?>/);
-    const url2 = lm ? lm[1] : '';
-    if (title && url2) out.push({ title: decodeXml(title), url: url2, origin: baseUrl });
-  }
-  return out;
-}
-
-function tag(block: string, name: string): string {
-  const m = block.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`));
-  return m ? m[1].trim() : '';
 }
 
 function decodeXml(s: string): string {
@@ -115,14 +69,49 @@ function decodeXml(s: string): string {
     .trim();
 }
 
+const FREE_SIGNAL_RE = /\b(free|gratis|free tier|no cost|zero cost|open weights|promo|credit)\b/i;
+const AI_PROVIDER_RE = /\b(llm|api|model|provider|openrouter|groq|gemini|glm|qwen|deepseek|kimi|minimax|tokenrouter|b\.ai|cerebras|sambanova|mistral|nim|ollama)\b/i;
+
+function matches(q: string): boolean {
+  return FREE_SIGNAL_RE.test(q) && AI_PROVIDER_RE.test(q);
+}
+
+function tag(block: string, name: string): string {
+  const m = block.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`));
+  return m ? m[1].trim() : '';
+}
+
+function parseAtomOrRss(xml: string): { title: string; url: string }[] {
+  const out: { title: string; url: string }[] = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/g;
+  let m: RegExpExecArray | null;
+  while ((m = itemRe.exec(xml)) !== null) {
+    const title = tag(m[1], 'title');
+    let url = tag(m[1], 'link');
+    if (!url) {
+      const dm = m[1].match(/<guid[^>]*>([^<]+)<\/guid>/);
+      url = dm ? dm[1].trim() : '';
+    }
+    if (title && url) out.push({ title: decodeXml(title), url });
+  }
+  const entryRe = /<entry>([\s\S]*?)<\/entry>/g;
+  while ((m = entryRe.exec(xml)) !== null) {
+    const title = tag(m[1], 'title');
+    const lm = m[1].match(/<link[^>]*href="([^"]+)"[^>]*\/?>/);
+    const url = lm ? lm[1] : '';
+    if (title && url) out.push({ title: decodeXml(title), url });
+  }
+  return out;
+}
+
 async function collectGoogleNews(): Promise<IntelItem[]> {
   const items: IntelItem[] = [];
   for (const q of GOOGLE_NEWS_QUERIES) {
     try {
       const xml = await fetchText(`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`);
-      for (const p of parseAtomOrRss(xml, 'news.google.com')) {
+      for (const p of parseAtomOrRss(xml)) {
         if (!matches(p.title)) continue;
-        items.push({ hash: hashOf(p.url), source: 'Google News', origin: p.origin, title: p.title, url: p.url, snippet: '' });
+        items.push({ hash: hashOf(p.url), source: 'Google News', origin: null, title: p.title, url: p.url, snippet: '' });
       }
     } catch { /* skip */ }
   }
@@ -134,7 +123,7 @@ async function collectReddit(): Promise<IntelItem[]> {
   for (const { sub, url } of REDDIT_URLS) {
     try {
       const raw = await fetchText(url);
-      const j = JSON.parse(raw) as { data?: { children?: { data?: { title?: string; url?: string; selftext?: string; permalink?: string } }[] } };
+      const j = JSON.parse(raw) as { data?: { children?: { data?: { title?: string; selftext?: string; permalink?: string } }[] } };
       for (const c of j.data?.children ?? []) {
         const d = c.data;
         if (!d?.title || !d?.permalink) continue;
@@ -159,25 +148,6 @@ async function collectHn(): Promise<IntelItem[]> {
       items.push({ hash: hashOf(u), source: 'Hacker News', origin: 'hn.algolia', title: h.title, url: u, snippet: '' });
     }
   } catch { /* skip */ }
-  return items;
-}
-
-async function collectNitter(): Promise<IntelItem[]> {
-  const items: IntelItem[] = [];
-  for (const inst of NITTER_INSTANCES) {
-    let ok = 0;
-    for (const user of NITTER_FEEDS) {
-      try {
-        const xml = await fetchText(`${inst}/${user}/rss`);
-        for (const p of parseAtomOrRss(xml, inst)) {
-          if (!matches(p.title)) continue;
-          items.push({ hash: hashOf(p.url), source: 'X (nitter)', origin: `@${user}`, title: p.title, url: p.url, snippet: '' });
-          ok++;
-        }
-      } catch { /* next feed */ }
-    }
-    if (ok > 0) break; // instance pertama yang hidup cukup
-  }
   return items;
 }
 
@@ -267,22 +237,24 @@ export interface IntelResult {
 }
 
 export async function runIntelScan(): Promise<IntelResult> {
-  const [alertsRes, gnews, reddit, hn, nitter] = await Promise.all([
+  const [alertsRes, gnews, reddit, hn, xLive] = await Promise.all([
     collectProviderDiffs(),
     collectGoogleNews().catch(() => [] as IntelItem[]),
     collectReddit().catch(() => [] as IntelItem[]),
     collectHn().catch(() => [] as IntelItem[]),
-    collectNitter().catch(() => [] as IntelItem[]),
+    scanXSession().catch((e) => ({ newItems: [] as IntelItem[], alerts: [] as string[], errors: [String(e?.message ?? e)], checked: 0 })),
   ]);
+  const xErrors = xLive.errors ?? [];
 
   const ddgX = await ddgSearch('site:x.com free AI API provider model', 8)
     .then((h) => h.filter((x) => /x\.com|twitter\.com/.test(x.url)).map((x) => ({ hash: hashOf(x.url), source: 'X (search)', origin: 'x.com', title: x.title, url: x.url, snippet: x.snippet.slice(0, 200) })))
     .catch(() => [] as IntelItem[]);
 
-  const all = [...gnews, ...reddit, ...hn, ...nitter, ...ddgX];
+  const all = [...gnews, ...reddit, ...hn, ...ddgX];
   const insert = db.prepare('INSERT OR IGNORE INTO intel_items(hash, source, origin, title, url, snippet, found_at) VALUES(?,?,?,?,?,?,?)');
-  const newItems: IntelItem[] = [];
+  const newItems: IntelItem[] = [...xLive.newItems];
   const perSource: Record<string, number> = {};
+  for (const it of xLive.newItems) perSource['X (live)'] = (perSource['X (live)'] ?? 0) + 1;
   for (const it of all) {
     const r = insert.run(it.hash, it.source, it.origin, it.title, it.url, it.snippet, new Date().toISOString());
     if (r.changes > 0) {
@@ -292,7 +264,7 @@ export async function runIntelScan(): Promise<IntelResult> {
   }
 
   kvSet('last_intel_scan', new Date().toISOString());
-  return { newItems, alerts: alertsRes.alerts, errors: alertsRes.errors, perSource };
+  return { newItems, alerts: [...xLive.alerts, ...alertsRes.alerts], errors: [...alertsRes.errors, ...xErrors], perSource };
 }
 
 export function latestIntel(limit = 12, hours = 24 * 14): IntelItem[] {

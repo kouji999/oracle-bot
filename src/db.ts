@@ -36,6 +36,13 @@ CREATE TABLE IF NOT EXISTS watch (
   keyword TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS x_users (
+  screen_name TEXT PRIMARY KEY,
+  rest_id TEXT,
+  label TEXT,
+  last_seen_id TEXT,
+  checked_at TEXT
+);
 CREATE TABLE IF NOT EXISTS history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat_id TEXT NOT NULL,
