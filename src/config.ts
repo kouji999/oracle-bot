@@ -40,7 +40,7 @@ export const config = {
       name: 'b.ai',
       baseUrl: process.env.BAI_BASE_URL ?? 'https://api.b.ai/v1',
       apiKey: process.env.BAI_API_KEY ?? '',
-      model: process.env.BAI_MODEL ?? 'glm-5.3-flash',
+      model: process.env.BAI_MODEL ?? 'qwen3.8-flash',
     },
     {
       name: 'devstack',

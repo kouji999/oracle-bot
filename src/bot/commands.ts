@@ -23,12 +23,28 @@ async function cmdAsk(chatId: string, question: string): Promise<string> {
     ? hits.map((h, i) => `[${i + 1}] ${h.title}\n${h.snippet}\n${h.url}`).join('\n\n')
     : '';
   remember(chatId, 'user', q);
+  const wantsProviders = /(provider|free|gratis|base ?url|api[ _-]?key|9router|openrouter|groq|gemini|cerebras|nim|ollama|token|model.*(baru|free|gratis)|kredit)/i.test(q);
+  let providerCtx = '';
+  if (wantsProviders) {
+    const provs = listProviders()
+      .map((p) => `${p.name} | ${p.baseUrl ?? 'n/a'} | ${p.freeModels ?? '?'} model gratis | syarat: ${p.creditCard ?? 'n/a'} | best: ${p.bestModelId ?? 'n/a'}`)
+      .join('\n');
+    const models = listFreeModels(20).map((m) => m.id).join(', ');
+    const xPosts = latestXPosts(6, 24 * 7).map((p) => p.title).join('\n');
+    providerCtx =
+      `\n\nDATA LOKAL ORACLE (sinkron otomatis — prioritaskan ini):\n` +
+      `<b>Direktori provider gratis:</b>\n${provs}\n\n` +
+      `<b>Model gratis OpenRouter:</b> ${models}\n\n` +
+      `<b>Sinyal X terbaru:</b>\n${xPosts}\n` +
+      `Jika user bertanya provider mana yang cocok, rekomendasikan dari direktori di atas (base URL + model + syarat), bandingkan rate limit/kartu, dan arahkan ke /prov <nama> untuk snippet config.`;
+  }
   const today = new Date().toLocaleDateString('id-ID', { dateStyle: 'full', timeZone: 'Asia/Jakarta' });
   const sys =
     `Anda adalah ORACLE, asisten riset pasar dan teknologi AI. Bahasa: Indonesia formal-profesional, ringkas, informatif; istilah teknis Inggris tetap. Tanggal hari ini: ${today}.` +
     (contextBlock
       ? `\nHasil pencarian web (real-time):\n${contextBlock}\nGunakan sebagai sumber utama; sitasi dengan [nomor].`
       : '\nPencarian web tidak menghasilkan data — jawab berdasarkan pengetahuan Anda dan sebutkan bahwa informasi dapat sudah tidak mutakhir.') +
+    providerCtx +
     '\nFormat: HTML Telegram (<b>, <i>, <code>). Maksimal ~300 kata kecuali diminta lebih rinci.';
   const r = await llmChat([{ role: 'system', content: sys }, ...history, { role: 'user', content: q }], { maxTokens: ANSWER_MAX_TOKENS });
   remember(chatId, 'assistant', r.content.slice(0, 2000));
@@ -101,6 +117,7 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
         '• <code>/prov &lt;nama&gt;</code> — detail + snippet konfigurasi siap pakai',
         '• <code>/aifree</code> — model gratis OpenRouter yang dipantau',
         '• <code>/aiscan</code> — pindai menyeluruh: OpenRouter, direktori provider, X, repositori',
+        '• <code>/howto</code> — SOP: cari, verifikasi, pasang provider gratis di router',
         '• <code>/airecap</code> — rekap mingguan',
         '',
         '<b>📈 Pasar &amp; Berita</b>',
@@ -117,6 +134,29 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
 
     case '/ask':
       return cmdAsk(chatId, rest);
+
+    case '/howto':
+      return [
+        '<b>📖 SOP Menemukan & Memakai Provider AI Gratis</b>',
+        '',
+        '<b>1. Cari — pakai yang ORACLE pantau otomatis</b>',
+        '• <code>/prov</code> — direktori 30+ provider gratis (auto-sync 2x sehari)',
+        '• <code>/xai</code> — posting-an X tentang provider/model gratis baru (auto-scan per jam)',
+        '• <code>/aifree</code> — model gratis di OpenRouter (baru terdeteksi = di-flag 🆕)',
+        'Sumber eksternal yang gua pantau: repo awesome-freellm-apis & awesomellm-apis, OpenRouter API, X via search.',
+        '',
+        '<b>2. Verifikasi sendiri (2 menit, jangan percaya list buta)</b>',
+        '• Cek daftar model: <code>GET {baseURL}/models</code> dengan header <code>Authorization: Bearer KEY</code>',
+        '• Tes 1 completion: <code>POST {baseURL}/chat/completions</code> body <code>{"model":"...","messages":[{"role":"user","content":"OK"}]}</code>',
+        '• Perhatikan: rate limit (RPM/RPD), expiry promo, dan apakah butuh kartu/HP.',
+        '',
+        '<b>3. Pasang di router/proxy (9router)</b>',
+        '• Type: <b>OpenAI-compatible chat</b> → isi Base URL + API key dari /prov <i>nama</i>',
+        '• Model ID persis dari daftar /models provider (case-sensitive)',
+        '• Urutkan fallback: provider tercepat dulu; cek Usage dashboard setelah 1 hari.',
+        '',
+        'Lupa? Ketik <code>/help</code>.',
+      ].join('\n');
 
     case '/xai': {
       if (rest) {
