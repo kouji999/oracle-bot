@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { db, kvSet } from '../db.js';
+import { db, kvGet, kvSet } from '../db.js';
 import { config } from '../config.js';
 import type { IntelItem } from './intel.js';
 
@@ -73,8 +73,17 @@ async function gql(opName: string, variables: Record<string, unknown>, extra = '
   const url =
     `https://x.com/i/api/graphql/${QUERY_IDS[opName]}/${opName}?variables=${encodeURIComponent(JSON.stringify(variables))}&features=${encodeURIComponent(FEATURES)}${extra}`;
   const r = await fetch(url, { headers: headers(), signal: AbortSignal.timeout(20_000) });
+  if (r.status === 401 || r.status === 403) {
+    kvSet('x_session_dead_since', new Date().toISOString());
+    throw new Error('X_SESSION_EXPIRED');
+  }
   if (!r.ok) throw new Error(`X API HTTP ${r.status}`);
   return r.json();
+}
+
+export function xSessionStatus(): { live: boolean; deadSince: string | null } {
+  const v = kvGet('x_session_dead_since');
+  return v ? { live: false, deadSince: v } : { live: true, deadSince: null };
 }
 
 interface TweetLike {
@@ -155,9 +164,19 @@ export async function scanXSession(): Promise<{ newItems: IntelItem[]; alerts: s
       }
       if (inserted > 0) alerts.push(`🐦 @${acct.screen} (${acct.label}): ${inserted} posting-an baru`);
     } catch (e) {
-      errors.push(`${acct.screen}: ${(e as Error).message}`);
+      const msg = (e as Error).message;
+      if (msg === 'X_SESSION_EXPIRED') {
+        const prevDead = kvGet('x_session_dead_since');
+        const firstTime = !prevDead || prevDead.slice(0, 10) < new Date(Date.now() - 3600_000).toISOString().slice(0, 10);
+        errors.push('X session expired (401/403) — refresh: login x.com → salin cookie auth_token & ct0 → update .env → restart (runbook di AGENTS.md)');
+        if (firstTime) alerts.push('⚠️ <b>Sesi X (Twitter) expired</b> — pemantauan X pause sampai session di-refresh. Bilang ke agent: "refresh X session".');
+        return { newItems, alerts, errors, checked };
+      }
+      errors.push(`${acct.screen}: ${msg}`);
     }
   }
+
+  if (checked > 0) db.prepare("DELETE FROM kv WHERE key = 'x_session_dead_since'").run();
 
   kvSet('last_x_live_scan', new Date().toISOString());
   return { newItems, alerts, errors, checked };

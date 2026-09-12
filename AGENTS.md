@@ -25,6 +25,24 @@ Telegram AI bot: chat AI (LLM+DDG grounding), finance news (global+ID), free-AI 
 - src/scheduler.ts — cron: rss 30m, ai 6h, digest 06:30 WIB, weekly Senin 09:00; watch keyword alert
 - src/cli.ts — harness verifikasi tanpa Telegram
 
+## X Session (Twitter) — Refresh Runbook
+
+Bot X live pakai cookie `X_AUTH_TOKEN` + `X_CT0` dari akun user (read-only, aman untuk akun suspend). Cookie ini dipakai tanpa browser — langsung via Node fetch ke GraphQL X.
+
+**Kalau bot alert "Sesi X (Twitter) expired"**, langkah:
+1. Buka `https://x.com` di browser, login pakai Google One Tap / akun lu
+2. Buka DevTools → Application → Cookies → x.com
+3. Copy value: `auth_token` + `ct0`
+4. Update `.env`:
+   ```
+   X_AUTH_TOKEN=auth_token_value_baru
+   X_CT0=ct0_value_baru
+   ```
+5. `powershell -ExecutionPolicy Bypass -File deploy\restart-laptop.ps1`
+6. Bot otomatis lanjut monitoring (karena `x_session_dead_since` akan ke-reset pas scan berikutnya sukses)
+
+Cookie expiry: ~1 tahun. Lebih cepet kalau revoke manual / security reset.
+
 ## Aturan
 - Semua kredensial via .env (gitignored). Provider baru → update docs/api-catalog.md + .env.example.
 - Semua external call: timeout + graceful error. Jangan pernah crash process karena satu feed/API mati.
