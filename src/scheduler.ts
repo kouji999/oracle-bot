@@ -7,6 +7,7 @@ import { buildMorningDigest, buildWeeklyAiRecap } from './digest.js';
 import { escapeHtml } from './util.js';
 import { syncFreeLlmProviders } from './collectors/freellm.js';
 import { runIntelScan } from './collectors/intel.js';
+import { checkPriceWatches } from './collectors/watchprice.js';
 
 export interface Notifier {
   send(text: string): Promise<void>;
@@ -118,6 +119,23 @@ export function startScheduler(notify: Notifier): { stop: () => void } {
       void buildWeeklyAiRecap()
         .then((r) => notify.send(r))
         .catch((e) => console.error('[weekly-cron]', e.message));
+    }, { timezone: 'Asia/Jakarta' }),
+  );
+
+  // Pemantau harga (threshold) — tiap 30 menit bareng RSS
+  crons.push(
+    cron.schedule('20,50 * * * *', () => {
+      void checkPriceWatches()
+        .then((fired) => {
+          if (!fired.length) return;
+          const lines = fired.map((f) => {
+            const label = f.target === 'usdidr' ? 'USD/IDR' : f.target.toUpperCase();
+            const val = f.target === 'usdidr' ? `Rp ${f.value.toLocaleString('id-ID')}` : `$${f.value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+            return `• <b>${label}</b> sekarang <b>${val}</b> (${f.op} ${f.threshold.toLocaleString('id-ID')})`;
+          });
+          return notify.send(`🚨 <b>Peringatan Harga</b>\n\n${lines.join('\n')}\n\n<i>Setup ulang: /watchprice</i>`);
+        })
+        .catch((e) => console.error('[price-cron]', e.message));
     }, { timezone: 'Asia/Jakarta' }),
   );
 

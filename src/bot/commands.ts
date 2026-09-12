@@ -156,7 +156,8 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
         '',
         '<b>👀 Pemantauan</b>',
         '• <code>/watch &lt;kata kunci&gt;</code> — notifikasi breaking news',
-        '• <code>/unwatch</code> · <code>/watchlist</code>',
+        '• <code>/watchprice btc above 100000</code> — peringatan harga (btc/eth/sol/usdidr)',
+        '• <code>/unwatch</code> · <code>/unwatchprice</code> · <code>/watchlist</code>',
         '',
         '• <code>/status</code> — kondisi layanan',
       ].join('\n');
@@ -271,10 +272,15 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
     case '/fb': {
       const m = rest.match(/^(\d+)\s*([+-])$/);
       if (!m) return 'Gunakan: <code>/fb &lt;nomor&gt; +</code> atau <code>/fb &lt;nomor&gt; -</code> — nomor dari daftar /intel terakhir (umur 1 jam).';
-      const map = getIntelMap(chatId);
+      let map = getIntelMap(chatId);
+      if (!map) {
+        // fallback: pakai temuan terbaru (48 jam) biar vote tetap bisa jalan
+        const recent = latestIntel(8, 48);
+        map = new Map(recent.map((it, i) => [i + 1, it.hash]));
+      }
       const n = Number(m[1]);
       const hash = map?.get(n);
-      if (!hash) return 'Nomor tidak dikenal / daftar sudah kedaluwarsa. Jalankan /intel lagi lalu vote.';
+      if (!hash) return 'Nomor tidak dikenal. Jalankan /intel lalu vote dengan nomor dari daftar.';
       const vote = m[2] === '+' ? 1 : -1;
       const { recordFeedback } = await import('../learning.js');
       recordFeedback(hash, vote as 1 | -1, chatId);
@@ -433,11 +439,25 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
       return res.changes > 0 ? `✓ Pemantauan <code>${escapeHtml(rest)}</code> dihapus.` : `Kata kunci <code>${escapeHtml(rest)}</code> tidak ditemukan di watchlist.`;
     }
 
+    case '/watchprice': {
+      const m = rest.match(/^(btc|eth|sol|usdidr)\s+(above|below)\s+([\d.,]+)$/i);
+      if (!m) return 'Format: <code>/watchprice btc above 100000</code> · target: btc/eth/sol/usdidr · operator: above/below';
+      const { addPriceWatch } = await import('../collectors/watchprice.js');
+      return addPriceWatch(m[1], m[2].toLowerCase(), Number(m[3].replace(/,/g, '')));
+    }
+
+    case '/unwatchprice': {
+      if (!rest) return 'Format: <code>/unwatchprice btc</code>';
+      const { removePriceWatch } = await import('../collectors/watchprice.js');
+      return removePriceWatch(rest);
+    }
+
     case '/watchlist': {
       const rows = db.prepare('SELECT keyword FROM watch ORDER BY keyword').all() as { keyword: string }[];
-      return rows.length
-        ? `<b>👀 Watchlist</b>\n${rows.map((r) => `• <code>${escapeHtml(r.keyword)}</code>`).join('\n')}`
-        : 'Watchlist kosong. Tambahkan dengan /watch <i>kata kunci</i>.';
+      const { listPriceWatches } = await import('../collectors/watchprice.js');
+      const kw = rows.length ? `• <b>Kata kunci berita</b>\n${rows.map((r) => `• <code>${escapeHtml(r.keyword)}</code>`).join('\n')}` : '';
+      const pw = listPriceWatches();
+      return [`<b>👀 Daftar Pemantauan</b>`, kw, kw ? '' : '', pw].filter(Boolean).join('\n');
     }
 
     default:

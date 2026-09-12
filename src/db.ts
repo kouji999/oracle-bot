@@ -111,6 +111,14 @@ CREATE TABLE IF NOT EXISTS learned_queries (
   hits INTEGER DEFAULT 0,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS price_watch (
+  target TEXT PRIMARY KEY,
+  op TEXT NOT NULL,
+  threshold REAL NOT NULL,
+  state INTEGER DEFAULT 0,
+  created_at TEXT,
+  fired_at TEXT
+);
 CREATE TABLE IF NOT EXISTS learn_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,

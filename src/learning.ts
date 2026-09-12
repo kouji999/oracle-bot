@@ -86,7 +86,12 @@ export function promotedQueries(limit = 3): string[] {
 
 export function learnQuery(query: string, source: string): void {
   const q = query.trim().slice(0, 120);
-  if (q.length < 10) return;
+  if (q.length < 15) return; // terlalu pendek = query lemah
+  if (isNoise(q)) return; // jangan pelajari query noise
+  const words = q.split(/\s+/).length;
+  if (words < 3) return; // butuh konteks minimal
+  const activeCount = (db.prepare('SELECT COUNT(*) c FROM learned_queries WHERE active = 1').get() as { c: number }).c;
+  if (activeCount >= 10 && source === 'user-feedback') return; // cap 10 query feedback biar scan ga melebar
   db.prepare('INSERT OR IGNORE INTO learned_queries(source, query, active, hits, created_at) VALUES(?,?,?,?,?)').run(source, q, 1, 0, new Date().toISOString());
 }
 
