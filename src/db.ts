@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS x_posts (
   query TEXT,
   found_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS intel_items (
+  hash TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  origin TEXT,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  snippet TEXT,
+  found_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intel_found ON intel_items(found_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_pub ON articles(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_history_chat ON history(chat_id, id DESC);
 `);

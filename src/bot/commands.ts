@@ -7,7 +7,7 @@ import { db, kvGet, remember, recentHistory } from '../db.js';
 import { latestArticles, collectRss } from '../collectors/rss.js';
 import { scanAiProviders, listFreeModels, newFreeModelsSince } from '../collectors/ai.js';
 import { syncFreeLlmProviders, listProviders, findProvider, type ProviderRow } from '../collectors/freellm.js';
-import { scanX, latestXPosts } from '../collectors/xai.js';
+import { runIntelScan, latestIntel } from '../collectors/intel.js';
 import { marketSnapshot, formatMarketLines } from '../collectors/market.js';
 import { buildMorningDigest, buildWeeklyAiRecap } from '../digest.js';
 
@@ -30,7 +30,7 @@ async function cmdAsk(chatId: string, question: string): Promise<string> {
       .map((p) => `${p.name} | ${p.baseUrl ?? 'n/a'} | ${p.freeModels ?? '?'} model gratis | syarat: ${p.creditCard ?? 'n/a'} | best: ${p.bestModelId ?? 'n/a'}`)
       .join('\n');
     const models = listFreeModels(20).map((m) => m.id).join(', ');
-    const xPosts = latestXPosts(6, 24 * 7).map((p) => p.title).join('\n');
+    const xPosts = latestIntel(8, 24 * 7).map((p) => `[${p.source}] ${p.title}`).join('\n');
     providerCtx =
       `\n\nDATA LOKAL ORACLE (sinkron otomatis — prioritaskan ini):\n` +
       `<b>Direktori provider gratis:</b>\n${provs}\n\n` +
@@ -110,9 +110,9 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
         '• Kirim pertanyaan apa pun secara langsung — dijawab dengan pencarian web real-time + sitasi',
         '• <code>/ask &lt;pertanyaan&gt;</code>',
         '',
-        '<b>🤖 Provider AI Gratis (prioritas intelijen X)</b>',
-        '• <code>/xai</code> — posting-an X tentang provider/model AI (scan langsung)',
-        '• <code>/xai &lt;topik&gt;</code> — cari di X untuk topik tertentu',
+        '<b>🤖 Provider AI Gratis (prioritas intelijen)</b>',
+        '• <code>/intel</code> — pemindaian semua sumber: perubahan provider (diff /models), Google News, Reddit, HN, X',
+        '• <code>/intel</code> (alias /xai) — perubahan & temuan baru, auto-push tiap temuan',
         '• <code>/prov</code> — direktori provider AI gratis: base URL, jumlah model, rate limit',
         '• <code>/prov &lt;nama&gt;</code> — detail + snippet konfigurasi siap pakai',
         '• <code>/aifree</code> — model gratis OpenRouter yang dipantau',
@@ -158,24 +158,32 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
         'Lupa? Ketik <code>/help</code>.',
       ].join('\n');
 
-    case '/xai': {
+    case '/xai':
+    case '/intel': {
       if (rest) {
-        const hits = await ddgSearch(`${rest} site:x.com`, 8);
-        const posts = hits.filter((h) => /x\.com|twitter\.com/.test(h.url));
+        const hits = await ddgSearch(`${rest} site:x.com OR site:reddit.com OR site:news.ycombinator.com`, 8);
+        const posts = hits.filter((h) => /x\.com|twitter\.com|reddit\.com|news\.ycombinator\.com/.test(h.url));
         return posts.length
-          ? `<b>🐦 Intelijen X — "${escapeHtml(rest)}"</b>\n\n${xPostsText(posts)}`
-          : 'Tidak ditemukan posting-an X untuk topik tersebut.';
+          ? `<b>🔎 Intelijen — "${escapeHtml(rest)}"</b>\n\n${xPostsText(posts)}`
+          : 'Tidak ditemukan untuk topik tersebut.';
       }
-      const r = await scanX();
-      const fresh = latestXPosts(10, 24 * 7);
-      const newBlock = r.newPosts.length
-        ? `🆕 <b>Penemuan baru (${r.newPosts.length}):</b>\n${xPostsText(r.newPosts.slice(0, 6))}`
-        : 'Tidak ada posting-an baru pada pemindaian ini.';
-      const hist = fresh.length
-        ? `\n\n<b>7 hari terakhir (${fresh.length}):</b>\n${xPostsText(fresh.slice(0, 10))}`
-        : '';
-      const err = r.errors.length ? `\n<i>⚠ ${r.errors.join(' | ')}</i>` : '';
-      return `<b>🐦 Intelijen X — Provider AI</b>\n\n${newBlock}${hist}${err}`;
+      const r = await runIntelScan();
+      const parts: string[] = ['<b>🛰 Intelijen Free-AI Provider</b>'];
+      if (r.alerts.length) {
+        parts.push(`\n<b>⚠ Perubahan provider (deteksi langsung):</b>\n${r.alerts.slice(0, 8).join('\n')}`);
+      }
+      if (r.newItems.length) {
+        const bySrc: Record<string, typeof r.newItems> = {};
+        for (const it of r.newItems) (bySrc[it.source] ??= []).push(it);
+        const blocks = Object.entries(bySrc).map(([src, items]) => `<b>${src}:</b>\n${xPostsText(items.slice(0, 5))}`);
+        parts.push(`\n${blocks.join('\n\n')}`);
+      } else {
+        parts.push('\nTidak ada temuan baru — semua sumber sudah terpindai sebelumnya.');
+      }
+      const perSrc = Object.entries(r.perSource).map(([s, n]) => `${s}:${n}`).join(', ');
+      if (perSrc) parts.push(`\n<i>${perSrc}</i>`);
+      if (r.errors.length) parts.push(`\n<i>⚠ ${r.errors.join(' | ')}</i>`);
+      return parts.join('\n');
     }
 
     case '/prov': {
@@ -230,14 +238,18 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
     }
 
     case '/aiscan': {
-      const [r, s, x] = await Promise.all([scanAiProviders(), syncFreeLlmProviders(), scanX()]);
+      const [r, s, x] = await Promise.all([scanAiProviders(), syncFreeLlmProviders(), runIntelScan()]);
       const newOnes = r.newModels.length
         ? `\n🆕 <b>Model OpenRouter baru:</b>\n${r.newModels.slice(0, 8).map((m) => `• <code>${m.id}</code> (${m.ctx ? `${(m.ctx / 1000).toFixed(0)}k ctx` : 'n/a'})`).join('\n')}`
         : '';
       const provNew = s.events.length
         ? `\n🧩 <b>Perbaruan direktori provider:</b>\n${s.events.slice(0, 6).map((e) => `• ${e.type === 'new_provider' ? `BARU <b>${escapeHtml(e.name)}</b> (${e.to} model)` : `${escapeHtml(e.name)}: ${e.from} → ${e.to} model`}`).join('\n')}`
         : '';
-      const xNew = x.newPosts.length ? `\n🐦 <b>Intelijen X baru (${x.newPosts.length}):</b>\n${xPostsText(x.newPosts.slice(0, 5))}` : '';
+      const xNew = x.alerts.length
+        ? `\n🛰 <b>Perubahan provider terdeteksi:</b>\n${x.alerts.slice(0, 6).join('\n')}`
+        : x.newItems.length
+          ? `\n🛰 <b>Intelijen baru (${x.newItems.length}):</b>\n${xPostsText(x.newItems.slice(0, 5))}`
+          : '';
       const gh = r.ghUpdates.length
         ? `\n📦 <b>Perbaruan repositori:</b>\n${r.ghUpdates.slice(0, 4).map((u) => `• <a href="${u.url}">${escapeHtml(u.title)}</a> <i>${u.repo.split('/')[1]}</i>`).join('\n')}`
         : '';

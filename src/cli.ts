@@ -3,7 +3,7 @@ import { buildMorningDigest } from './digest.js';
 import { marketSnapshot, formatMarketLines } from './collectors/market.js';
 import { collectRss } from './collectors/rss.js';
 import { scanAiProviders } from './collectors/ai.js';
-import { scanX } from './collectors/xai.js';
+import { runIntelScan } from './collectors/intel.js';
 import { syncFreeLlmProviders } from './collectors/freellm.js';
 import { ddgSearch } from './search.js';
 
@@ -35,8 +35,13 @@ async function main(): Promise<void> {
       break;
     }
     case 'xai': {
-      const s = await scanX();
-      out = `new: ${s.newPosts.length}\n${s.newPosts.slice(0, 8).map((p: { title: string; url: string }) => `- ${p.title}\n  ${p.url}`).join('\n')}${s.errors.length ? `\nerrors: ${s.errors.join(' | ')}` : ''}`;
+      const s = await runIntelScan();
+      const lines: string[] = [];
+      if (s.alerts.length) lines.push('ALERTS:\n' + s.alerts.join('\n'));
+      if (s.newItems.length) lines.push('NEW ITEMS:\n' + s.newItems.map((p) => `- [${p.source}] ${p.title}\n  ${p.url}`).join('\n'));
+      if (!lines.length) lines.push('no new items');
+      if (s.errors.length) lines.push('errors: ' + s.errors.join(' | '));
+      out = lines.join('\n');
       break;
     }
     case 'market': {

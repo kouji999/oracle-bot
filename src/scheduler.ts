@@ -6,7 +6,7 @@ import { marketSnapshot } from './collectors/market.js';
 import { buildMorningDigest, buildWeeklyAiRecap } from './digest.js';
 import { escapeHtml } from './util.js';
 import { syncFreeLlmProviders } from './collectors/freellm.js';
-import { scanX } from './collectors/xai.js';
+import { runIntelScan } from './collectors/intel.js';
 
 export interface Notifier {
   send(text: string): Promise<void>;
@@ -72,17 +72,20 @@ export function startScheduler(notify: Notifier): { stop: () => void } {
     }, { timezone: 'Asia/Jakarta' }),
   );
 
-  // Intelijen X (provider AI yang dibicarakan orang) — tiap jam
+  // Intelijen free-AI provider (diff /models provider + Google News + Reddit + HN + nitter + X) — tiap jam
   crons.push(
     cron.schedule('15 * * * *', () => {
-      void scanX()
+      void runIntelScan()
         .then((r) => {
-          if (r.newPosts.length > 0) {
-            const list = r.newPosts.slice(0, 5).map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a>`).join('\n');
-            return notify.send(`🐦 <b>Intelijen X baru — provider AI (${r.newPosts.length} posting-an)</b>\n\n${list}`);
+          const parts: string[] = [];
+          if (r.alerts.length) parts.push(`🛰 <b>Perubahan provider:</b>\n${r.alerts.slice(0, 8).join('\n')}`);
+          if (r.newItems.length) {
+            const top = r.newItems.slice(0, 6).map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a> <i>${escapeHtml(p.source)}</i>`);
+            parts.push(`🔎 <b>Intelijen baru (${r.newItems.length}):</b>\n${top.join('\n')}`);
           }
+          if (parts.length) return notify.send(parts.join('\n\n'));
         })
-        .catch((e) => console.error('[x-cron]', e.message));
+        .catch((e) => console.error('[intel-cron]', e.message));
     }, { timezone: 'Asia/Jakarta' }),
   );
 
@@ -126,7 +129,7 @@ export async function runInitialCollect(): Promise<string> {
     collectRss(),
     scanAiProviders().catch(() => undefined),
     syncFreeLlmProviders().catch(() => undefined),
-    scanX().catch(() => undefined),
+    runIntelScan().catch(() => undefined),
     marketSnapshot().catch(() => undefined),
   ]);
   const ok = rssR.perFeed.filter((f) => f.ok);

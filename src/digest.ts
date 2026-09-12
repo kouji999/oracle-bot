@@ -1,17 +1,17 @@
-import { llmChat } from './llm.js';
+﻿import { llmChat } from './llm.js';
 import { articlesSince } from './collectors/rss.js';
 import { newFreeModelsSince } from './collectors/ai.js';
 import { marketSnapshot, formatMarketLines } from './collectors/market.js';
-import { latestXPosts } from './collectors/xai.js';
+import { latestIntel } from './collectors/intel.js';
 import { db } from './db.js';
 import { escapeHtml } from './util.js';
 
 export async function buildMorningDigest(): Promise<string> {
-  const [snap, arts, aiNew, xPosts] = await Promise.all([
+  const [snap, arts, aiNew, intel] = await Promise.all([
     marketSnapshot(),
     Promise.resolve(articlesSince(20, undefined, 30)),
     Promise.resolve(newFreeModelsSince(48, 6)),
-    Promise.resolve(latestXPosts(6, 48)),
+    Promise.resolve(latestIntel(8, 48)),
   ]);
 
   const market = formatMarketLines(snap);
@@ -22,9 +22,9 @@ export async function buildMorningDigest(): Promise<string> {
   const ai = aiNew.length
     ? aiNew.map((m) => `• <code>${m.id}</code> — ${m.ctx ? `${(m.ctx / 1000).toFixed(0)}k ctx` : 'ctx n/a'}`).join('\n')
     : 'Tidak ada model gratis baru dalam 48 jam terakhir.';
-  const xBlock = xPosts.length
-    ? xPosts.map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a>`).join('\n')
-    : 'Tidak ada intelijen X 48 jam terakhir.';
+  const xBlock = intel.length
+    ? intel.map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a> <i>${escapeHtml(p.source)}</i>`).join('\n')
+    : 'Tidak ada intelijen 48 jam terakhir.';
 
   const rawBlock = [
     'MARKET:',
@@ -36,8 +36,8 @@ export async function buildMorningDigest(): Promise<string> {
     'NEW FREE AI MODELS (OpenRouter):',
     aiNew.length ? aiNew.map((m) => `- ${m.id} (${m.ctx} ctx)`).join('\n') : 'none',
     '',
-    'X INTEL (posting-an tentang provider AI):',
-    xPosts.length ? xPosts.map((p) => `- ${p.title}: ${p.snippet}`).join('\n') : 'none',
+    'INTEL (sinyal provider AI dari X/Reddit/HN/news):',
+    intel.length ? intel.map((p) => `- [${p.source}] ${p.title}: ${p.snippet}`).join('\n') : 'none',
   ].join('\n');
 
   let summary = '';
@@ -80,7 +80,7 @@ export async function buildWeeklyAiRecap(): Promise<string> {
     .all(new Date(Date.now() - 7 * 86400_000).toISOString()) as { model_id: string; name: string; ctx: number; first_seen: string }[];
 
   const total = (db.prepare("SELECT COUNT(*) c FROM ai_models WHERE provider = 'openrouter'").get() as { c: number }).c;
-  const xPosts = latestXPosts(8, 24 * 7);
+  const xPosts = latestIntel(8, 24 * 7);
 
   let recap = '';
   try {
