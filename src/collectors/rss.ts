@@ -1,4 +1,4 @@
-import { XMLParser } from 'fast-xml-parser';
+﻿import { XMLParser } from 'fast-xml-parser';
 import { createHash } from 'node:crypto';
 import { db, kvSet } from '../db.js';
 import { decodeEntities, escapeHtml } from '../util.js';
@@ -73,7 +73,7 @@ export async function fetchFeed(feed: FeedDef): Promise<RawItem[]> {
   try {
     const r = await fetch(feed.url, {
       headers: {
-        'user-agent': 'Mozilla/5.0 (compatible; ORACLE-Bot/0.1; +https://t.me/oracle)',
+        'user-agent': 'Mozilla/5.0 (compatible; VEYRON-Bot/1.0; +https://t.me/veyron)',
         accept: 'application/rss+xml, application/xml, text/xml, */*',
       },
       signal: ctrl.signal,

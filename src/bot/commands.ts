@@ -33,7 +33,7 @@ async function cmdAsk(chatId: string, question: string): Promise<string> {
     const models = listFreeModels(20).map((m) => m.id).join(', ');
     const xPosts = latestIntel(8, 24 * 7).map((p) => `[${p.source}] ${p.title}`).join('\n');
     providerCtx =
-      `\n\nDATA LOKAL ORACLE (sinkron otomatis — prioritaskan ini):\n` +
+      `\n\nDATA LOKAL VEYRON (sinkron otomatis — prioritaskan ini):\n` +
       `<b>Direktori provider gratis:</b>\n${provs}\n\n` +
       `<b>Model gratis OpenRouter:</b> ${models}\n\n` +
       `<b>Sinyal X terbaru:</b>\n${xPosts}\n` +
@@ -41,7 +41,7 @@ async function cmdAsk(chatId: string, question: string): Promise<string> {
   }
   const today = new Date().toLocaleDateString('id-ID', { dateStyle: 'full', timeZone: 'Asia/Jakarta' });
   const sys =
-    `Anda adalah ORACLE, asisten riset pasar dan teknologi AI. Bahasa: Indonesia formal-profesional, ringkas, informatif; istilah teknis Inggris tetap. Tanggal hari ini: ${today}.` +
+    `Anda adalah VEYRON, asisten riset pasar dan teknologi AI. Bahasa: Indonesia formal-profesional, ringkas, informatif; istilah teknis Inggris tetap. Tanggal hari ini: ${today}.` +
     (contextBlock
       ? `\nHasil pencarian web (real-time):\n${contextBlock}\nGunakan sebagai sumber utama; sitasi dengan [nomor].`
       : '\nPencarian web tidak menghasilkan data — jawab berdasarkan pengetahuan Anda dan sebutkan bahwa informasi dapat sudah tidak mutakhir.') +
@@ -84,6 +84,11 @@ function getIntelMap(chatId: string): Map<number, string> | undefined {
     return undefined;
   }
   return e.map;
+}
+/** Hash temuan terbaru (utk inline keyboard di index.ts). */
+export function takeIntelMap(chatId: string): string[] {
+  const m = getIntelMap(chatId);
+  return m ? Array.from(new Set(m.values())) : [];
 }
 
 function provDetail(p: ProviderRow): string {
@@ -129,7 +134,7 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
     case '/start':
     case '/help':
       return [
-        '<b>ORACLE — Market &amp; AI Intelligence</b>',
+        '<b>VEYRON — Market &amp; AI Intelligence</b>',
         'Layanan informasi finansial, intelijen provider AI gratis, dan berita pasar secara real-time.',
         '',
         '<b>💬 Asisten AI</b>',
@@ -169,7 +174,7 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
       return [
         '<b>📖 SOP Menemukan & Memakai Provider AI Gratis</b>',
         '',
-        '<b>1. Cari — pakai yang ORACLE pantau otomatis</b>',
+        '<b>1. Cari — pakai yang VEYRON pantau otomatis</b>',
         '• <code>/prov</code> — direktori 30+ provider gratis (auto-sync 2x sehari)',
         '• <code>/xai</code> — posting-an X tentang provider/model gratis baru (auto-scan per jam)',
         '• <code>/aifree</code> — model gratis di OpenRouter (baru terdeteksi = di-flag 🆕)',
@@ -413,7 +418,7 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
       };
       const since = (iso: string | null): string => (iso ? new Date(iso).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' }) : '—');
       return [
-        '<b>⚙️ Status Layanan ORACLE</b>',
+        '<b>⚙️ Status Layanan VEYRON</b>',
         `• Artikel tersimpan: <b>${counts.articles}</b> · Sinkron RSS terakhir: ${since(counts.lastRss)}`,
         `• Provider AI: <b>${counts.providers}</b> · Model gratis OpenRouter: <b>${counts.freeModels}</b> · Intelijen X: <b>${counts.xPosts}</b> (terbaru: ${since(counts.lastXai)})`,
         `• Sinkron direktori provider: ${since(counts.lastProv)} · Pindai OpenRouter: ${since(counts.lastAi)}`,
@@ -440,8 +445,8 @@ export async function handleUpdateText(chatId: string, text: string): Promise<st
     }
 
     case '/watchprice': {
-      const m = rest.match(/^(btc|eth|sol|usdidr)\s+(above|below)\s+([\d.,]+)$/i);
-      if (!m) return 'Format: <code>/watchprice btc above 100000</code> · target: btc/eth/sol/usdidr · operator: above/below';
+      const m = rest.match(/^(\S+)\s+(above|below)\s+([\d.,]+)$/i);
+      if (!m) return 'Format: <code>/watchprice btc above 100000</code><br>Target: btc/eth/sol/usdidr · saham: aapl, nvda, bbca.jk · indeks: ^jkse';
       const { addPriceWatch } = await import('../collectors/watchprice.js');
       return addPriceWatch(m[1], m[2].toLowerCase(), Number(m[3].replace(/,/g, '')));
     }

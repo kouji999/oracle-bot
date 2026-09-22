@@ -60,7 +60,7 @@ export async function buildMorningDigest(): Promise<string> {
 
   const today = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' });
   return [
-    `<b>☀️ ORACLE — Morning Brief | ${today}</b>`,
+    `<b>☀️ VEYRON — Morning Brief | ${today}</b>`,
     '',
     summary,
     '',
@@ -99,7 +99,7 @@ export async function buildWeeklyAiRecap(): Promise<string> {
   const list = rows.slice(0, 20).map((m) => `• <code>${m.model_id}</code> — ${m.ctx ? `${(m.ctx / 1000).toFixed(0)}k ctx` : 'n/a'}`).join('\n');
   const xBlock = xPosts.length ? `\n<b>Sinyal X minggu ini:</b>\n${xPosts.slice(0, 5).map((p) => `• <a href="${p.url}">${escapeHtml(p.title.slice(0, 90))}</a>`).join('\n')}` : '';
   return [
-    '<b>🤖 ORACLE — Weekly AI Recap</b>',
+    '<b>🤖 VEYRON — Weekly AI Recap</b>',
     '',
     `Model gratis terpantau: <b>${total}</b> · Baru minggu ini: <b>${rows.length}</b>`,
     '',
